@@ -4,6 +4,9 @@ from datetime import datetime
 from glob import glob
 from typing import Tuple, List, Optional
 
+import fsspec
+
+
 from autorag.utils import result_to_dataframe
 from autorag.data.utils.util import get_file_metadata
 
@@ -14,7 +17,10 @@ def parser_node(func):
 	@functools.wraps(func)
 	@result_to_dataframe(["texts", "path", "page", "last_modified_datetime"])
 	def wrapper(
-		data_path_glob: str, parse_method: Optional[str] = None, **kwargs
+		data_path_glob: str,
+		parse_method: Optional[str] = None,
+		fs: Optional[fsspec.AbstractFileSystem] = None,
+		**kwargs,
 	) -> Tuple[List[str], List[str], List[int], List[datetime]]:
 		logger.info(f"Running parser - {func.__name__} module...")
 
