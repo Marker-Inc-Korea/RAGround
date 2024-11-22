@@ -1,3 +1,4 @@
+pydantic<2.10.0 # incompatible with llama index
 numpy<2.0.0 # temporal not using numpy 2.0.0
 pandas>=2.1.0
 tqdm
@@ -26,6 +27,8 @@ pymilvus # for using milvus vectordb
 chromadb>=0.5.0 # for chroma vectordb
 weaviate-client # for weaviate vectordb
 pinecone[grpc] # for pinecone vectordb
+couchbase # for couchbase vectordb
+qdrant-client # for qdrant vectordb
 
 ### API server ###
 quart
