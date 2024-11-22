@@ -1,9 +1,11 @@
 import logging
 
 
-from typing import List, Optional, Tuple
+import faiss
 
-from autorag.utils.util import make_batch, apply_recursive
+from typing import List, Tuple
+
+from autorag.utils.util import apply_recursive
 from autorag.vectordb import BaseVectorStore
 
 logger = logging.getLogger("AutoRAG")
@@ -15,40 +17,12 @@ class Faiss(BaseVectorStore):
 		embedding_model: str,
 		index_name: str,
 		embedding_batch: int = 100,
-		dimension: int = 1536,
-		similarity_metric: str = "cosine",  # "cosine", "dotproduct", "euclidean"
-		cloud: Optional[str] = "aws",
-		region: Optional[str] = "us-east-1",
-		api_key: Optional[str] = None,
-		deletion_protection: Optional[str] = "disabled",  # "enabled" or "disabled"
-		namespace: Optional[str] = "default",
-		ingest_batch: int = 200,
+		similarity_metric: str = "cosine",
+		dimension: int = 768,
 	):
 		super().__init__(embedding_model, similarity_metric, embedding_batch)
 
-		self.index_name = index_name
-		self.namespace = namespace
-		self.ingest_batch = ingest_batch
-
-		self.client = Pinecone_client(api_key=api_key)
-
-		if similarity_metric == "ip":
-			similarity_metric = "dotproduct"
-		elif similarity_metric == "l2":
-			similarity_metric = "euclidean"
-
-		if not self.client.has_index(index_name):
-			self.client.create_index(
-				name=index_name,
-				dimension=dimension,
-				metric=similarity_metric,
-				spec=ServerlessSpec(
-					cloud=cloud,
-					region=region,
-				),
-				deletion_protection=deletion_protection,
-			)
-		self.index = self.client.Index(index_name)
+		self.index = faiss.IndexFlatL2(dimension)
 
 	async def add(self, ids: List[str], texts: List[str]):
 		texts = self.truncated_inputs(texts)
@@ -56,19 +30,7 @@ class Faiss(BaseVectorStore):
 			List[float]
 		] = await self.embedding.aget_text_embedding_batch(texts)
 
-		vector_tuples = list(zip(ids, text_embeddings))
-		batch_vectors = make_batch(vector_tuples, self.ingest_batch)
-
-		async_res = [
-			self.index.upsert(
-				vectors=batch_vector_tuples,
-				namespace=self.namespace,
-				async_req=True,
-			)
-			for batch_vector_tuples in batch_vectors
-		]
-		# Wait for the async requests to finish
-		[async_result.result() for async_result in async_res]
+		return text_embeddings
 
 	async def fetch(self, ids: List[str]) -> List[List[float]]:
 		results = self.index.fetch(ids=ids, namespace=self.namespace)
