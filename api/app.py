@@ -1,4 +1,5 @@
 import asyncio
+import itertools
 import json
 import logging
 import os
@@ -25,6 +26,7 @@ from quart import jsonify, request, make_response, send_file
 from quart_cors import cors  # Import quart_cors to enable CORS
 from quart_uploads import UploadSet, configure_uploads
 
+from autorag.utils import fetch_contents
 from database.project_db import SQLiteProjectDB  # 올바른 임포트로 변경
 from src.auth import require_auth
 from src.evaluate_history import get_new_trial_dir
@@ -37,6 +39,7 @@ from src.schema import (
     TrialConfig,
     QACreationRequest,
 )
+from src.util import find_corpus_name
 from src.validate import project_exists, trial_exists
 from tasks.trial_tasks import (
     generate_qa_documents,
@@ -564,6 +567,64 @@ async def create_qa(project_id: str):
     except Exception as e:
         logger.error(f"Error starting QA generation task: {str(e)}", exc_info=True)
         return jsonify({"task_id": task_id, "status": "FAILURE", "error": str(e)}), 500
+
+
+@app.route("/projects/<string:project_id>/qa/<string:qa_name>/lengths", methods=["GET"])
+@project_exists(WORK_DIR)
+async def get_qa_lengths(project_id: str, qa_name: str):
+    qa_path = os.path.join(WORK_DIR, project_id, "qa", f"{qa_name}.parquet")
+    if not os.path.exists(qa_path):
+        return jsonify({"error": "QA file not found"}), 404
+
+    qa_df = pd.read_parquet(qa_path, engine="pyarrow")
+    return jsonify({"length": len(qa_df)}), 200
+
+
+@app.route("/projects/<string:project_id>/qa/<string:qa_name>/row", methods=["GET"])
+@project_exists(WORK_DIR)
+async def get_qa_rows(project_id: str, qa_name: str):
+    """/projects/<project_id>/qa/<qa_name>/row?index=0?chunked_name=auto"""
+    qa_path = os.path.join(WORK_DIR, project_id, "qa", f"{qa_name}.parquet")
+    if not os.path.exists(qa_path):
+        return jsonify({"error": "QA file not found"}), 404
+
+    qa_df = pd.read_parquet(qa_path, engine="pyarrow")
+
+    index = request.args.get("index", -1, type=int)
+    if index < 0 or index >= len(qa_df):
+        return jsonify({"error": "Index out of range or not given."}), 400
+
+    chunked_name = request.args.get("chunked_name", "auto")
+    qa_row = qa_df.iloc[index].to_dict()
+
+    corpus_dir = os.path.join(WORK_DIR, project_id, "chunk")
+    # fetch content from corpus
+    if chunked_name == "auto":
+        one_retrieval_gt_id = list(
+            itertools.chain.from_iterable(qa_row["retrieval_gt"])
+        )[0]
+        chunked_name = find_corpus_name(one_retrieval_gt_id, corpus_dir)
+        if chunked_name is None:
+            return jsonify(
+                {"error": "Chunked name not found. Invalid retrieval gt id"}
+            ), 404
+
+    corpus_df_filepath = os.path.join(corpus_dir, chunked_name, "0.parquet")
+    if not os.path.exists(corpus_df_filepath):
+        return jsonify({"error": "Corpus file not found"}), 404
+    corpus_df = pd.read_parquet(corpus_df_filepath, engine="pyarrow")
+
+    retrieval_gt_contents = fetch_contents(corpus_df, qa_row["retrieval_gt"])
+
+    return jsonify(
+        {
+            "qid": qa_row["qid"],
+            "query": qa_row["query"],
+            "retrieval_gt_contents": retrieval_gt_contents,
+            "generation_gt": qa_row["generation_gt"],
+            "corpus_name": chunked_name,
+        }
+    ), 200
 
 
 @app.route(
