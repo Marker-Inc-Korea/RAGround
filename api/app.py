@@ -27,6 +27,7 @@ from quart_cors import cors  # Import quart_cors to enable CORS
 from quart_uploads import UploadSet, configure_uploads
 
 from autorag.utils import fetch_contents
+from autorag.utils.util import to_list
 from database.project_db import SQLiteProjectDB  # 올바른 임포트로 변경
 from src.auth import require_auth
 from src.evaluate_history import get_new_trial_dir
@@ -620,8 +621,8 @@ async def get_qa_rows(project_id: str, qa_name: str):
         {
             "qid": qa_row["qid"],
             "query": qa_row["query"],
-            "retrieval_gt_contents": retrieval_gt_contents,
-            "generation_gt": qa_row["generation_gt"],
+            "retrieval_gt_contents": to_list(retrieval_gt_contents),
+            "generation_gt": to_list(qa_row["generation_gt"]),
             "corpus_name": chunked_name,
         }
     ), 200
